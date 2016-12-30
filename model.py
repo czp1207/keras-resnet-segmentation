@@ -65,7 +65,14 @@ def dilated_bottleneck(nb_filters, init_subsample=(1, 1), name='', atrous_rate=(
 
     return f
 
-def PSPNET(input_shape = None, batch_shape = None):
+def Multi_unit(nb_filters):
+    def f(input):
+        conv_3_3 = _bn_relu_conv(nb_filters, 3, 3)(input)
+        residual = _bn_relu_conv(nb_filters, 3, 3)(conv_3_3)
+        return _shortcut(input, residual)
+    return f
+
+def Dilated_Resnet(input_shape = None, batch_shape = None):
     handle_dim_ordering()
     if batch_shape:
         img_input = Input(batch_shape = batch_shape)
@@ -95,9 +102,7 @@ def PSPNET(input_shape = None, batch_shape = None):
     conv3_3 = bottleneck(128, name='conv3_3')(conv3_2)
     conv3_4 = bottleneck(128, name='conv3_4')(conv3_3)
     
-    
-    # conv4_1 = dilated_bottleneck(256, name='conv4_2')(conv4_1)
-    conv4_1 = dilated_bottleneck(256, name='conv4_1')(conv3_4)
+    conv4_1 = dilated_bottleneck(256, name='conv4_1', isFirst=True)(conv3_4)
     conv4_2 = dilated_bottleneck(256, name='conv4_2')(conv4_1)
     conv4_3 = dilated_bottleneck(256, name='conv4_3')(conv4_2)
     conv4_4 = dilated_bottleneck(256, name='conv4_4')(conv4_3)
@@ -125,7 +130,32 @@ def PSPNET(input_shape = None, batch_shape = None):
     conv5_1 = dilated_bottleneck(512, name='conv5_1', atrous_rate=(4,4))(conv4_24) 
     conv5_2 = dilated_bottleneck(512, name='conv5_2', atrous_rate=(4,4))(conv5_1)
     conv5_3 = dilated_bottleneck(512, name='conv5_3', atrous_rate=(4,4))(conv5_2)
+    #H/32 * W/32
+    conv5_3_pool1 = AveragePooling2D(pool_size=(2, 2), strides=2, border_mode='same')(conv5_3)
+    conv5_3_pool1_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool1_conv')(conv5_3_pool1)
+    #H/64 * W/64
+    conv5_3_pool2 = AveragePooling2D(pool_size=(4, 4), strides=4, border_mode='same')(conv5_3)
+    conv5_3_pool2_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool2_conv')(conv5_3_pool2)
+    #H/128 * W/128
+    conv5_3_pool3 = AveragePooling2D(pool_size=(8, 8), strides=8, border_mode='same')(conv5_3)
+    conv5_3_pool3_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool3_conv')(conv5_3_pool3)
+    #H/256 * W/256
+    conv5_3_pool4 = AveragePooling2D(pool_size=(16, 16), strides=16, border_mode='same')(conv5_3)
+    conv5_3_pool4_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool4_conv')(conv5_3_pool4)
+    #H/512 * W/512
+    conv5_3_pool5 = AveragePooling2D(pool_size=(32, 32), strides=32, border_mode='same')(conv5_3)
+    conv5_3_pool5_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool5_conv')(conv5_3_pool5)
+    #Pyramid Pooling Module
+    conv5_3_pool1_up = UpSampling2D(size=(4, 4))(conv5_3_pool1_conv)
+    conv5_3_pool2_up = UpSampling2D(size=(8, 8))(conv5_3_pool2_conv)
+    conv5_3_pool3_up = UpSampling2D(size=(16, 16))(conv5_3_pool3_conv)
+    conv5_3_pool4_up = UpSampling2D(size=(32, 32))(conv5_3_pool4_conv)
+    conv5_3_pool5_up = UpSampling2D(size=(64, 64))(conv5_3_pool5_conv)
+    #Pooling concat    
+    conv5_3_concat = Merge([conv5_3_pool1_up, conv5_3_pool2_up, conv5_3_pool3_up, conv5_3_pool4_up, conv5_3_pool5_up], mode='concat', concat_axis=CHANNEL_AXIS)
+    conv5_4 = _bn_conv_relu(512, 1, 1, name='conv5_4_new')(conv5_3_concat)
+    conv6 = Convolution2D(21, 1, 1, init="he_normal", border_mode="same", subsample=(1, 1), name='conv6_new')(conv5_4)
+    output = Upsampling2D(size=(8,8))(conv6)
+    #Multi-path Input
     
-    conv5_3_pool1 = AveragePooling2D(pool_size=(60, 60), strides=60, border_mode='same')(conv5_3)
-    conv5_3_pool1_conv = _bn_conv_relu(512, 1, 1, name='conv5_3_pool1_conv')
-     
+    
